@@ -9,9 +9,55 @@ The backend is the single source of truth for money and debt. The UI only displa
 
 ---
 
-## Quick start
+## Quick start with Docker (recommended)
 
-Prerequisites: **Node.js ≥ 20.11** (developed on 24.14), **npm**, and **Docker** (for PostgreSQL). If you don't use Docker, any PostgreSQL ≥ 14 works; point the URLs in `.env` at it.
+Only **Docker** (with Compose v2) is needed: no Node.js and no local PostgreSQL.
+
+```bash
+git clone https://github.com/Saydullo-Keldiyev/edu-payments-api.git
+cd edu-payments-api
+cp .env.example .env          # PowerShell: Copy-Item .env.example .env
+#   then replace "change_me" with any password (letters and digits only)
+docker compose up --build
+```
+
+- Admin UI: http://localhost:3000
+- API: http://localhost:4000 (for example http://localhost:4000/health)
+
+Compose starts the services in order and waits for each one's health check:
+
+| Service | What it does |
+|---|---|
+| `db` | PostgreSQL 17. Data lives in the `pgdata` volume, and the database is not published to the host |
+| `migrate` | Runs `prisma migrate deploy` once, then exits |
+| `backend` | The compiled API (`node dist/server.js`), production dependencies only, non-root user. Starts after the migrations succeed |
+| `frontend` | Next.js standalone server. The browser calls the API at `http://localhost:${API_PORT}` |
+
+Run the 96 integration tests inside Docker (they use a separate `<POSTGRES_DB>_test` database on the same server):
+
+```bash
+docker compose --profile test run --rm test
+```
+
+Other useful commands:
+
+```bash
+docker compose down
+```
+Stops everything; the data is kept.
+
+```bash
+docker compose down -v
+```
+Stops everything and **deletes** the database volume.
+
+If ports 3000 or 4000 are busy, change `WEB_PORT` / `API_PORT` in `.env` and run `docker compose up --build` again. The UI must be rebuilt because the API URL is baked into its bundle.
+
+---
+
+## Local development without Docker for the apps
+
+Prerequisites: **Node.js ≥ 20.11** (developed on 24.14), **npm**, and **Docker** (for PostgreSQL only). If you don't use Docker, any PostgreSQL ≥ 14 works; point the URLs in `backend/.env` at it. `backend/docker-compose.yml` starts just the database on `127.0.0.1:5433`, so it can run next to the full stack.
 
 ### 1. Backend (http://localhost:4000)
 
@@ -155,8 +201,11 @@ The UI shows both: the Debtors page has **This month only** and **Running balanc
 ### Project structure
 
 ```
+docker-compose.yml            Full stack: db, migrate, backend, frontend (+ `test` profile)
+.env.example                  Credentials and host ports for the full stack
 backend/
-  docker-compose.yml          PostgreSQL 17 for dev/test, credentials read from .env
+  Dockerfile                  build (compile; also used by migrate/test), prod-deps, runtime (slim, non-root)
+  docker-compose.yml          PostgreSQL only, for local development on 127.0.0.1:5433
   prisma/schema.prisma        Student and Payment models (UUID ids, DECIMAL money, DATE paymentDate)
   prisma/migrations/          init + hand-written CHECK constraints on money columns
   src/server.ts               HTTP listener and graceful shutdown
@@ -178,6 +227,7 @@ backend/
   tests/*.test.ts             Supertest integration tests (health, students, payments, debtors)
   vitest.config.ts            Points the tests at TEST_DATABASE_URL and runs files serially
 frontend/
+  Dockerfile                  deps, build (API URL as build arg), standalone runtime
   src/lib/types.ts            TypeScript mirror of the API DTOs
   src/lib/api.ts              Shared typed API client and ApiError (status, code, field errors)
   src/lib/use-async.ts        Loading/error/data hook with race protection and reload
