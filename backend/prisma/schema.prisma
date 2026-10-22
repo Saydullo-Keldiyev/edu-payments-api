@@ -1,0 +1,40 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Student {
+  id           String    @id @default(uuid()) @db.Uuid
+  name         String    @db.VarChar(100)
+  /// Stored normalized (digits with optional leading "+") so uniqueness is reliable.
+  phone        String    @unique @db.VarChar(20)
+  groupName    String    @map("group_name") @db.VarChar(100)
+  /// Money is stored as an exact decimal, never as a float.
+  monthlyFee   Decimal   @map("monthly_fee") @db.Decimal(12, 2)
+  /// First billed month, stored as the 1st day of that month. Used by the carry-forward balance.
+  billingStart DateTime  @map("billing_start") @db.Date
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  payments     Payment[]
+
+  @@map("students")
+}
+
+model Payment {
+  id          String   @id @default(uuid()) @db.Uuid
+  studentId   String   @map("student_id") @db.Uuid
+  amount      Decimal  @db.Decimal(12, 2)
+  /// Business date of the payment (no time-of-day, so no timezone ambiguity at month boundaries).
+  paymentDate DateTime @map("payment_date") @db.Date
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  // Restrict: a student with payment history cannot be deleted, even bypassing the API.
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Restrict)
+
+  @@index([studentId, paymentDate])
+  @@index([paymentDate])
+  @@map("payments")
+}
